@@ -1,0 +1,60 @@
+# ============================================================
+# CAU HINH - VCI BIM Backup Tool
+# ============================================================
+# File nay co the chinh sua truc tiep bang Notepad, hoac chinh qua
+# giao dien roi bam "Luu cau hinh" (comment se duoc giu lai).
+
+# Duong dan goc chua toan bo project tren NAS
+source_root = "\\\\Vci-bim-nas\\projects"
+
+# Danh sach cac project (thu muc con cua source_root) can backup.
+# Chi nhung project co trong danh sach nay moi duoc backup.
+# SUA lai danh sach mau ben duoi thanh ten project THAT cua ban,
+# hoac dung o "+ Them" trong giao dien roi bam "Luu cau hinh".
+projects = [
+    "Project_A",
+    "Project_B",
+]
+
+# Thu muc dich mac dinh goi y khi mo tool (co the de trong "").
+# Van co the bam "Chon o dich..." trong giao dien de doi o khac.
+default_destination = ""
+
+# So luong copy song song. 0 = tool tu dong chon theo so nhan CPU (4-8).
+thread_count = 0
+
+# true = XOA cac file/thu muc thua o dich khong con o nguon (mirror that).
+# false = chi them/cap nhat, khong xoa gi (an toan hon). Nen de false
+# cho lan chay dau tien de kiem tra truoc khi bat xoa that.
+enable_mirror_delete = false
+
+# Cac mau ten file/thu muc can bo qua khi backup (ho tro ky tu dai dien *)
+exclude_patterns = [
+    "*.bak",
+    "~$*",
+    "*.tmp",
+    ".dropbox",
+    "Thumbs.db",
+    "desktop.ini",
+]
+
+# Giao dien: true = che do Toi, false = che do Sang.
+# Cach de xuat: bam nut Sang/Toi tren giao dien, tool tu luu lai o day.
+ui_dark_mode = true
+
+[schedule]
+# Bat/tat backup TU DONG chay ngam theo lich (dung Windows Task Scheduler).
+# Luu y: may tinh phai dang BAT va o Elements phai dang CAM dung luc lich
+# chay thi lan backup tu dong do moi thuc su dien ra.
+# Cach de xuat: bat/tat va chinh gio truc tiep trong giao dien (nut "Luu lich
+# tu dong"), khong can sua tay o day.
+enabled = false
+# "daily" | "weekly" | "monthly"
+frequency = "daily"
+# Gio chay (0-23) va phut (0-59)
+hour = 22
+minute = 0
+# Chi dung khi frequency = "weekly": mon/tue/wed/thu/fri/sat/sun
+weekday = "mon"
+# Chi dung khi frequency = "monthly": ngay trong thang (1-28)
+day_of_month = 1
