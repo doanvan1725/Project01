@@ -51,3 +51,17 @@ create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public
 as $$ begin insert into public.profiles (id, full_name) values (new.id, coalesce(new.raw_user_meta_data->>'full_name', new.email)); return new; end; $$;
 create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.handle_new_user();
+
+create table if not exists public.issue_versions (
+  id uuid primary key default uuid_generate_v4(),
+  issue_id uuid not null references public.issues(id) on delete cascade,
+  version_number integer not null,
+  attachments jsonb not null default '[]'::jsonb,
+  note text not null default '',
+  created_at timestamptz not null default now(),
+  created_by uuid references auth.users(id) on delete set null,
+  unique (issue_id, version_number)
+);
+alter table public.issue_versions enable row level security;
+create policy "Authenticated users can read issue versions" on public.issue_versions for select to authenticated using (true);
+create policy "Editors can create issue versions" on public.issue_versions for insert to authenticated with check (public.current_user_role() in ('admin', 'editor'));

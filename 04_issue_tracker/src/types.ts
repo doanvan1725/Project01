@@ -9,6 +9,15 @@ export type Attachment = {
   mimeType?: string;
 };
 
+export type IssueVersion = {
+  id: string;
+  issueId: string;
+  versionNumber: number;
+  attachments: Attachment[];
+  note: string;
+  createdAt: string;
+};
+
 export type Issue = {
   id: string;
   creatorName: string;
@@ -22,4 +31,8 @@ export type Issue = {
   status: IssueStatus;
 };
 
-export const STATUS_OPTIONS: IssueStatus[] = ["Mới tạo", "Đang xử lý", "Đã trả lời"];
+export const STATUS_OPTIONS: IssueStatus[] = [
+  "Mới tạo",
+  "Đang xử lý",
+  "Đã trả lời",
+];
