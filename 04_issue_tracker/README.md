@@ -22,9 +22,8 @@ npm run dev
 
 1. Tao project tai Supabase, mo SQL Editor va chay file `supabase/schema.sql`.
 2. Vao `Settings > API` cua Supabase, lay `Project URL` va `anon public key`.
-3. Vao `Settings > Secrets and variables > Actions` cua GitHub repository va tao hai secret:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
+3. Vao `Settings > Secrets and variables > Actions` cua GitHub repository va tao secret:
+   - `VITE_SUPABASE_ANON_KEY` (co the dan Publishable key moi `sb_publishable_...` vao bien nay)
 4. Vao `Settings > Pages`, chon source `GitHub Actions`.
 5. Push code hoac bam `Run workflow` trong workflow `Deploy Issue Tracker`.
 6. Dang ky tai khoan dau tien, lay UUID trong Supabase `Authentication > Users`, sau do chay lenh update admin o cuoi file SQL.
