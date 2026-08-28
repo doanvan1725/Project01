@@ -30,7 +30,7 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name RevitBackupInspector app.py
+          pyinstaller --noconfirm --clean --onefile --windowed --name RevitBackupInspector main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

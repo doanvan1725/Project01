@@ -7,6 +7,8 @@ dist/
 02_revit_backup/build/
 02_revit_backup/dist/
 02_revit_backup/__pycache__/
+02_revit_backup/logs/
+02_revit_backup/revit_backup_stage/
 *.spec
 *.log
 .pytest_cache/

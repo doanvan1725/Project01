@@ -6,6 +6,9 @@ App Python giao dien desktop de:
 - thong ke so luong va dung luong
 - loc tim nhanh theo ten, thu muc, loai backup
 - xoa file backup da chon hoac xoa toan bo ket qua
+- chuyen file vao thu muc staging do ban chi dinh truoc khi xoa
+- keo-tha thu muc truc tiep vao o duong dan
+- ghi log ra file va mo nhanh thu muc nguon/staging
 
 ## Chuc nang
 
@@ -19,7 +22,7 @@ App Python giao dien desktop de:
 
 ```bash
 pip install -r requirements.txt
-python app.py
+python main.py
 ```
 
 ## Build EXE tren GitHub Actions
@@ -38,8 +41,10 @@ App se gom:
 
 - file co duoi `.rvt.bak`, `.rfa.bak`, `.rte.bak`, `.rft.bak`
 - file co duoi so backup kieu `model.0001.rvt`, `family.0003.rfa`
+- file trong thu muc staging se duoc bo qua khi scan nguon neu staging nam ben trong source
 
 ## Luu y
 
 - Xoa file la hanh dong khong the hoan tac.
 - Nen scan truoc va kiem tra danh sach truoc khi xoa.
+- Nen dung chuyen sang staging truoc, sau do moi xoa hoac rut gon danh sach can giu.

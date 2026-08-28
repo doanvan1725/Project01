@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-from PySide6.QtCore import QDateTime, QObject, QThread, Qt, Signal, Slot
-from PySide6.QtGui import QColor, QFont, QIcon, QPalette
+from PySide6.QtCore import QDateTime, QObject, QThread, Qt, QUrl, Signal, Slot
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QLinearGradient, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -61,6 +63,22 @@ def human_size(value: int) -> str:
     return f"{value} B"
 
 
+def runtime_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def safe_resolve(path: Path) -> Path:
+    return path.resolve(strict=False)
+
+
+def is_under(path: Path, root: Path) -> bool:
+    path_resolved = safe_resolve(path)
+    root_resolved = safe_resolve(root)
+    return path_resolved == root_resolved or path_resolved.is_relative_to(root_resolved)
+
+
 def is_revit_backup(path: Path) -> tuple[bool, str]:
     lower_name = path.name.lower()
     if lower_name.endswith(".bak") and any(lower_name.endswith(f"{ext}.bak") for ext in BACKUP_EXTENSIONS):
@@ -70,29 +88,65 @@ def is_revit_backup(path: Path) -> tuple[bool, str]:
     return False, ""
 
 
+def unique_destination_path(destination: Path) -> Path:
+    if not destination.exists():
+        return destination
+
+    stem = destination.stem
+    suffix = destination.suffix
+    parent = destination.parent
+    for index in range(1, 10_000):
+        candidate = parent / f"{stem} ({index}){suffix}"
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"Khong tao duoc ten moi cho {destination}")
+
+
+def iter_candidates(root: Path, include_subfolders: bool, exclude_dirs: list[Path]) -> Iterable[Path]:
+    exclude_dirs = [safe_resolve(p) for p in exclude_dirs if p]
+
+    def excluded(path: Path) -> bool:
+        return any(is_under(path, ex) for ex in exclude_dirs)
+
+    if include_subfolders:
+        for dirpath, dirs, filenames in os.walk(root, onerror=lambda _: None):
+            base = Path(dirpath)
+            if excluded(base):
+                dirs[:] = []
+                continue
+
+            kept_dirs: list[str] = []
+            for dirname in dirs:
+                candidate_dir = base / dirname
+                if not excluded(candidate_dir):
+                    kept_dirs.append(dirname)
+            dirs[:] = kept_dirs
+
+            for filename in filenames:
+                candidate = base / filename
+                if not excluded(candidate):
+                    yield candidate
+    else:
+        try:
+            for path in root.iterdir():
+                if path.is_file() and not excluded(path):
+                    yield path
+        except OSError:
+            return
+
+
 def scan_backups(
     root: Path,
     include_subfolders: bool,
+    exclude_dirs: list[Path] | None = None,
     progress_cb=None,
     status_cb=None,
 ) -> list[BackupItem]:
     items: list[BackupItem] = []
-    if include_subfolders:
-        def walk_candidates() -> Iterable[Path]:
-            for dirpath, _, filenames in os.walk(root, onerror=lambda _: None):
-                base = Path(dirpath)
-                for filename in filenames:
-                    yield base / filename
-
-        candidates = walk_candidates()
-    else:
-        try:
-            candidates = (p for p in root.iterdir() if p.is_file())
-        except OSError:
-            candidates = []
+    exclude_dirs = exclude_dirs or []
 
     processed = 0
-    for path in candidates:
+    for path in iter_candidates(root, include_subfolders, exclude_dirs):
         processed += 1
         if progress_cb and processed % 250 == 0:
             progress_cb(processed)
@@ -121,15 +175,61 @@ def scan_backups(
     return items
 
 
+def create_app_icon() -> QIcon:
+    pixmap = QPixmap(256, 256)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    gradient = QLinearGradient(0, 0, 256, 256)
+    gradient.setColorAt(0.0, QColor("#1e40af"))
+    gradient.setColorAt(0.55, QColor("#0f172a"))
+    gradient.setColorAt(1.0, QColor("#0ea5e9"))
+    painter.setBrush(gradient)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawRoundedRect(12, 12, 232, 232, 48, 48)
+    painter.setPen(QColor("#eaf4ff"))
+    font = QFont("Segoe UI", 88, QFont.Weight.Bold)
+    painter.setFont(font)
+    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "RB")
+    painter.end()
+    return QIcon(pixmap)
+
+
+class FolderLineEdit(QLineEdit):
+    def __init__(self, placeholder: str = "") -> None:
+        super().__init__()
+        self.setPlaceholderText(placeholder)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        urls = event.mimeData().urls()
+        if not urls:
+            super().dropEvent(event)
+            return
+
+        local_path = Path(urls[0].toLocalFile())
+        if local_path.is_file():
+            local_path = local_path.parent
+        self.setText(str(local_path))
+        event.acceptProposedAction()
+
+
 class ScanWorker(QObject):
-    finished = Signal(list, int)
+    finished = Signal(object, int)
     progress = Signal(int)
     status = Signal(str)
 
-    def __init__(self, root: str, include_subfolders: bool) -> None:
+    def __init__(self, root: str, include_subfolders: bool, exclude_dirs: list[str]) -> None:
         super().__init__()
         self.root = Path(root)
         self.include_subfolders = include_subfolders
+        self.exclude_dirs = [Path(p) for p in exclude_dirs if p]
 
     @Slot()
     def run(self) -> None:
@@ -138,6 +238,7 @@ class ScanWorker(QObject):
             items = scan_backups(
                 self.root,
                 self.include_subfolders,
+                self.exclude_dirs,
                 progress_cb=lambda value: self.progress.emit(min(value, 100)),
                 status_cb=self.status.emit,
             )
@@ -165,18 +266,48 @@ class DeleteWorker(QObject):
             try:
                 path.unlink()
                 deleted += 1
-            except Exception:
+            except Exception as exc:
                 errors += 1
+                self.status.emit(f"Delete failed: {path.name} ({exc})")
             self.progress.emit(int(index * 100 / total))
             self.status.emit(f"Deleting {index}/{total}...")
         self.finished.emit(deleted, errors)
+
+
+class MoveWorker(QObject):
+    finished = Signal(int, int)
+    progress = Signal(int)
+    status = Signal(str)
+
+    def __init__(self, paths: list[Path], destination_dir: Path) -> None:
+        super().__init__()
+        self.paths = paths
+        self.destination_dir = destination_dir
+
+    @Slot()
+    def run(self) -> None:
+        moved = 0
+        errors = 0
+        total = max(1, len(self.paths))
+        self.destination_dir.mkdir(parents=True, exist_ok=True)
+        for index, src in enumerate(self.paths, start=1):
+            try:
+                dst = unique_destination_path(self.destination_dir / src.name)
+                shutil.move(str(src), str(dst))
+                moved += 1
+            except Exception as exc:
+                errors += 1
+                self.status.emit(f"Move failed: {src.name} ({exc})")
+            self.progress.emit(int(index * 100 / total))
+            self.status.emit(f"Moving {index}/{total}...")
+        self.finished.emit(moved, errors)
 
 
 class MetricCard(QFrame):
     def __init__(self, title: str, value: str, accent: str) -> None:
         super().__init__()
         self.setObjectName("metricCard")
-        self.setMinimumHeight(104)
+        self.setMinimumHeight(106)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         layout = QVBoxLayout(self)
@@ -204,16 +335,26 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Revit Backup Inspector")
-        self.resize(1260, 840)
+        self.resize(1360, 880)
 
         self.scan_thread: QThread | None = None
         self.scan_worker: ScanWorker | None = None
         self.delete_thread: QThread | None = None
         self.delete_worker: DeleteWorker | None = None
+        self.move_thread: QThread | None = None
+        self.move_worker: MoveWorker | None = None
         self.backup_items: list[BackupItem] = []
+        self.log_path = self._init_log_file()
 
         self._build_ui()
         self._apply_theme()
+        self._log(f"App started - log file: {self.log_path}")
+
+    def _init_log_file(self) -> Path:
+        logs_dir = runtime_dir() / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return logs_dir / f"revit_backup_{stamp}.log"
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -224,24 +365,32 @@ class MainWindow(QMainWindow):
 
         self.header = QFrame()
         self.header.setObjectName("heroPanel")
-        header_layout = QVBoxLayout(self.header)
+        header_layout = QHBoxLayout(self.header)
         header_layout.setContentsMargins(24, 24, 24, 24)
-        header_layout.setSpacing(10)
+        header_layout.setSpacing(18)
 
+        badge = QLabel("RB")
+        badge.setObjectName("appBadge")
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setFixedSize(72, 72)
+
+        header_text = QVBoxLayout()
+        header_text.setSpacing(8)
         title = QLabel("Revit Backup Inspector")
         title.setObjectName("heroTitle")
         subtitle = QLabel(
-            "Quet, thong ke va xoa file backup Revit trong mot giao dien de nhin, an toan va nhanh."
+            "Quet, loc, chuyen va xoa file backup Revit trong mot giao dien sang, ro va an toan."
         )
         subtitle.setObjectName("heroSubtitle")
-
-        self.path_label = QLabel("Chua chon thu muc")
+        self.path_label = QLabel("Chua chon thu muc nguon")
         self.path_label.setObjectName("pathLabel")
         self.path_label.setWordWrap(True)
+        header_text.addWidget(title)
+        header_text.addWidget(subtitle)
+        header_text.addWidget(self.path_label)
 
-        header_layout.addWidget(title)
-        header_layout.addWidget(subtitle)
-        header_layout.addWidget(self.path_label)
+        header_layout.addWidget(badge)
+        header_layout.addLayout(header_text, stretch=1)
         root_layout.addWidget(self.header)
 
         self.metric_cards = QFrame()
@@ -252,11 +401,11 @@ class MainWindow(QMainWindow):
         self.card_total = MetricCard("Tong backup", "0", "#4da3ff")
         self.card_size = MetricCard("Tong dung luong", "0 B", "#17c964")
         self.card_selected = MetricCard("Dang chon", "0", "#ffb020")
-        self.card_deleted = MetricCard("Da xoa", "0", "#ff5c7a")
+        self.card_staged = MetricCard("Da chuyen staging", "0", "#a855f7")
         cards_layout.addWidget(self.card_total, 0, 0)
         cards_layout.addWidget(self.card_size, 0, 1)
         cards_layout.addWidget(self.card_selected, 0, 2)
-        cards_layout.addWidget(self.card_deleted, 0, 3)
+        cards_layout.addWidget(self.card_staged, 0, 3)
         root_layout.addWidget(self.metric_cards)
 
         controls = QFrame()
@@ -266,12 +415,16 @@ class MainWindow(QMainWindow):
         controls_layout.setHorizontalSpacing(12)
         controls_layout.setVerticalSpacing(12)
 
-        self.folder_edit = QLineEdit()
-        self.folder_edit.setPlaceholderText("Chon thu muc chua backup Revit...")
+        self.folder_edit = FolderLineEdit("Keo-tha thu muc nguon vao day hoac bam Browse...")
         self.folder_edit.textChanged.connect(self._set_path_preview)
 
         browse_btn = QPushButton("Browse")
         browse_btn.clicked.connect(self.choose_folder)
+
+        self.staging_edit = FolderLineEdit("Thu muc staging de chuyen backup vao day...")
+
+        staging_browse_btn = QPushButton("Browse")
+        staging_browse_btn.clicked.connect(self.choose_staging_folder)
 
         self.scan_subfolders = QCheckBox("Quet ca thu muc con")
         self.scan_subfolders.setChecked(True)
@@ -293,6 +446,21 @@ class MainWindow(QMainWindow):
         self.delete_all_button = QPushButton("Xoa toan bo ket qua")
         self.delete_all_button.clicked.connect(self.delete_all)
 
+        self.move_selected_button = QPushButton("Chuyen muc chon vao staging")
+        self.move_selected_button.clicked.connect(self.move_selected_to_staging)
+
+        self.move_all_button = QPushButton("Chuyen tat ca vao staging")
+        self.move_all_button.clicked.connect(self.move_all_to_staging)
+
+        self.open_source_button = QPushButton("Mo thu muc nguon")
+        self.open_source_button.clicked.connect(self.open_source_folder)
+
+        self.open_staging_button = QPushButton("Mo staging")
+        self.open_staging_button.clicked.connect(self.open_staging_folder)
+
+        self.open_selected_button = QPushButton("Mo thu muc file dang chon")
+        self.open_selected_button.clicked.connect(self.open_selected_folder)
+
         controls_layout.addWidget(QLabel("Thu muc nguon"), 0, 0, 1, 2)
         controls_layout.addWidget(self.folder_edit, 1, 0, 1, 3)
         controls_layout.addWidget(browse_btn, 1, 3)
@@ -303,7 +471,15 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.sort_combo, 3, 1)
         controls_layout.addWidget(self.scan_button, 3, 2)
         controls_layout.addWidget(self.delete_selected_button, 3, 3)
-        controls_layout.addWidget(self.delete_all_button, 4, 3)
+        controls_layout.addWidget(QLabel("Thu muc staging"), 4, 0, 1, 2)
+        controls_layout.addWidget(self.staging_edit, 5, 0, 1, 3)
+        controls_layout.addWidget(staging_browse_btn, 5, 3)
+        controls_layout.addWidget(self.move_selected_button, 6, 0)
+        controls_layout.addWidget(self.move_all_button, 6, 1)
+        controls_layout.addWidget(self.delete_all_button, 6, 2)
+        controls_layout.addWidget(self.open_selected_button, 6, 3)
+        controls_layout.addWidget(self.open_source_button, 7, 0)
+        controls_layout.addWidget(self.open_staging_button, 7, 1)
         root_layout.addWidget(controls)
 
         table_wrap = QFrame()
@@ -324,6 +500,7 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
         self.table.setWordWrap(False)
+        self.table.itemDoubleClicked.connect(lambda _item: self.open_selected_folder())
 
         table_layout.addWidget(self.table)
         root_layout.addWidget(table_wrap, stretch=1)
@@ -340,14 +517,14 @@ class MainWindow(QMainWindow):
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("Nhat ky xu ly se hien o day...")
-        self.log.setMaximumHeight(140)
+        self.log.setMaximumHeight(160)
 
         bottom_layout.addWidget(self.progress)
         bottom_layout.addWidget(self.log)
         root_layout.addWidget(bottom)
 
         self.statusBar().showMessage("San sang")
-        self._set_default_folder()
+        self._set_default_paths()
 
     def _apply_theme(self) -> None:
         self.setFont(QFont("Segoe UI", 10))
@@ -377,6 +554,13 @@ class MainWindow(QMainWindow):
                 background: rgba(15, 23, 42, 0.88);
                 border: 1px solid rgba(148, 163, 184, 0.18);
                 border-radius: 18px;
+            }
+            #appBadge {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3b82f6, stop:1 #8b5cf6);
+                color: white;
+                border-radius: 18px;
+                font-size: 22pt;
+                font-weight: 800;
             }
             #heroTitle {
                 font-size: 24pt;
@@ -473,68 +657,83 @@ class MainWindow(QMainWindow):
             """
         )
 
-    def _set_default_folder(self) -> None:
-        default = Path.home() / "Documents"
-        self.folder_edit.setText(str(default if default.exists() else Path.home()))
+    def _set_default_paths(self) -> None:
+        default_source = Path.home() / "Documents"
+        self.folder_edit.setText(str(default_source if default_source.exists() else Path.home()))
+        self.staging_edit.setText(str(runtime_dir() / "revit_backup_stage"))
 
     def _set_path_preview(self, text: str) -> None:
-        self.path_label.setText(text.strip() or "Chua chon thu muc")
+        self.path_label.setText(text.strip() or "Chua chon thu muc nguon")
 
-    def choose_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Chon thu muc Revit backup")
-        if folder:
-            self.folder_edit.setText(folder)
+    def _log(self, message: str) -> None:
+        now = QDateTime.currentDateTime().toString("HH:mm:ss")
+        line = f"[{now}] {message}"
+        self.log.append(line)
+        self.statusBar().showMessage(message)
+        try:
+            with self.log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+        except OSError:
+            pass
 
     def _set_ui_busy(self, busy: bool) -> None:
         self.scan_button.setDisabled(busy)
         self.delete_selected_button.setDisabled(busy)
         self.delete_all_button.setDisabled(busy)
+        self.move_selected_button.setDisabled(busy)
+        self.move_all_button.setDisabled(busy)
         self.folder_edit.setDisabled(busy)
+        self.staging_edit.setDisabled(busy)
         self.scan_subfolders.setDisabled(busy)
         self.search_edit.setDisabled(busy)
         self.sort_combo.setDisabled(busy)
 
-    def _append_log(self, message: str) -> None:
-        now = QDateTime.currentDateTime().toString("HH:mm:ss")
-        self.log.append(f"[{now}] {message}")
-        self.statusBar().showMessage(message)
+    def choose_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Chon thu muc nguon Revit backup")
+        if folder:
+            self.folder_edit.setText(folder)
 
-    def start_scan(self) -> None:
-        root_text = self.folder_edit.text().strip()
-        root = Path(root_text)
-        if not root_text:
-            QMessageBox.warning(self, "Thieu duong dan", "Hay chon thu muc can quet.")
+    def choose_staging_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Chon thu muc staging")
+        if folder:
+            self.staging_edit.setText(folder)
+
+    def source_root(self) -> Path | None:
+        text = self.folder_edit.text().strip()
+        if not text:
+            return None
+        return Path(text)
+
+    def staging_root(self) -> Path | None:
+        text = self.staging_edit.text().strip()
+        if not text:
+            return None
+        return Path(text)
+
+    def open_folder(self, path: Path | None) -> None:
+        if path is None:
+            QMessageBox.information(self, "Thieu duong dan", "Hay chon duong dan truoc.")
             return
-        if not root.exists():
-            QMessageBox.warning(self, "Khong ton tai", "Thu muc da chon khong ton tai.")
+        if not path.exists():
+            QMessageBox.information(self, "Khong ton tai", f"Thu muc khong ton tai:\n{path}")
             return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
-        self._set_ui_busy(True)
-        self.progress.setValue(0)
-        self._append_log(f"Bat dau quet: {root}")
+    def open_source_folder(self) -> None:
+        root = self.source_root()
+        if root is not None:
+            self.open_folder(root)
 
-        self.scan_thread = QThread(self)
-        self.scan_worker = ScanWorker(str(root), self.scan_subfolders.isChecked())
-        self.scan_worker.moveToThread(self.scan_thread)
-        self.scan_thread.started.connect(self.scan_worker.run)
-        self.scan_worker.status.connect(self._append_log)
-        self.scan_worker.progress.connect(self.progress.setValue)
-        self.scan_worker.finished.connect(self._scan_finished)
-        self.scan_worker.finished.connect(self.scan_thread.quit)
-        self.scan_worker.finished.connect(self.scan_worker.deleteLater)
-        self.scan_thread.finished.connect(self.scan_thread.deleteLater)
-        self.scan_thread.start()
+    def open_staging_folder(self) -> None:
+        root = self.staging_root()
+        if root is not None:
+            self.open_folder(root)
 
-    @Slot(list, int)
-    def _scan_finished(self, items: list[BackupItem], error_code: int) -> None:
-        self._set_ui_busy(False)
-        self.progress.setValue(100 if error_code == 0 else 0)
-        self.backup_items = items if error_code == 0 else []
-        self._refresh_table_view()
-        if error_code == 0:
-            self._append_log(f"Hoan tat quet. Tim thay {len(self.backup_items)} file backup.")
-        else:
-            self._append_log("Quet that bai.")
+    def _selected_rows(self) -> list[int]:
+        selection = self.table.selectionModel()
+        if selection is None:
+            return []
+        return sorted({index.row() for index in selection.selectedRows()})
 
     def _filtered_and_sorted_items(self) -> list[BackupItem]:
         query = self.search_edit.text().strip().lower()
@@ -555,12 +754,6 @@ class MainWindow(QMainWindow):
         else:
             filtered.sort(key=lambda item: item.modified, reverse=True)
         return filtered
-
-    def _selected_rows(self) -> list[int]:
-        selection = self.table.selectionModel()
-        if selection is None:
-            return []
-        return sorted({index.row() for index in selection.selectedRows()})
 
     def _selected_items(self) -> list[BackupItem]:
         visible = self._filtered_and_sorted_items()
@@ -588,49 +781,105 @@ class MainWindow(QMainWindow):
 
         self.table.resizeColumnsToContents()
         self.table.setColumnWidth(1, max(220, self.table.columnWidth(1)))
-        self.table.setColumnWidth(5, max(260, self.table.columnWidth(5)))
+        self.table.setColumnWidth(5, max(280, self.table.columnWidth(5)))
         total_size = sum(item.size for item in self.backup_items)
         self.card_total.set_value(f"{len(self.backup_items):,}")
         self.card_size.set_value(human_size(total_size))
         self.card_selected.set_value(f"{len(self._selected_rows()):,}")
+        stage_dir = self.staging_root()
+        self.card_staged.set_value("Ready" if stage_dir else "Unset")
 
-    def delete_selected(self) -> None:
+    def start_scan(self) -> None:
+        root = self.source_root()
+        if root is None:
+            QMessageBox.warning(self, "Thieu duong dan", "Hay chon thu muc can quet.")
+            return
+        if not root.exists():
+            QMessageBox.warning(self, "Khong ton tai", "Thu muc nguon da chon khong ton tai.")
+            return
+
+        staging = self.staging_root()
+        excludes: list[str] = []
+        if staging and staging.exists() and is_under(staging, root):
+            excludes.append(str(staging))
+
+        self._set_ui_busy(True)
+        self.progress.setValue(0)
+        self._log(f"Bat dau quet: {root}")
+        if excludes:
+            self._log(f"Bo qua staging trong khi quet: {staging}")
+
+        self.scan_thread = QThread(self)
+        self.scan_worker = ScanWorker(str(root), self.scan_subfolders.isChecked(), excludes)
+        self.scan_worker.moveToThread(self.scan_thread)
+        self.scan_thread.started.connect(self.scan_worker.run)
+        self.scan_worker.status.connect(self._log)
+        self.scan_worker.progress.connect(self.progress.setValue)
+        self.scan_worker.finished.connect(self._scan_finished)
+        self.scan_worker.finished.connect(self.scan_thread.quit)
+        self.scan_worker.finished.connect(self.scan_worker.deleteLater)
+        self.scan_thread.finished.connect(self.scan_thread.deleteLater)
+        self.scan_thread.start()
+
+    @Slot(object, int)
+    def _scan_finished(self, items: object, error_code: int) -> None:
+        self._set_ui_busy(False)
+        self.progress.setValue(100 if error_code == 0 else 0)
+        self.backup_items = items if error_code == 0 else []
+        self._refresh_table_view()
+        if error_code == 0:
+            self._log(f"Hoan tat quet. Tim thay {len(self.backup_items)} file backup.")
+        else:
+            self._log("Quet that bai.")
+
+    def open_selected_folder(self) -> None:
         items = self._selected_items()
+        if not items:
+            self.open_source_folder()
+            return
+        self.open_folder(items[0].path.parent)
+
+    def _confirm_action(self, title: str, text: str) -> bool:
+        reply = QMessageBox.warning(
+            self,
+            title,
+            text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _confirm_target_folder(self, target: Path) -> bool:
+        if target.exists():
+            return True
+        return self._confirm_action(
+            "Tao thu muc",
+            f"Thu muc nay chua ton tai:\n{target}\n\nBan co muon tao moi no khong?",
+        )
+
+    def _perform_delete(self, items: list[BackupItem]) -> None:
         if not items:
             QMessageBox.information(self, "Chua chon", "Hay chon it nhat mot file backup can xoa.")
             return
-        self._confirm_and_delete(items)
 
-    def delete_all(self) -> None:
-        items = self._filtered_and_sorted_items()
-        if not items:
-            QMessageBox.information(self, "Khong co gi", "Khong co file backup nao trong ket qua hien tai.")
-            return
-        self._confirm_and_delete(items)
-
-    def _confirm_and_delete(self, items: list[BackupItem]) -> None:
         total_size = sum(item.size for item in items)
-        reply = QMessageBox.warning(
-            self,
+        if not self._confirm_action(
             "Xac nhan xoa",
             (
                 f"Ban sap xoa {len(items)} file backup, tong dung luong {human_size(total_size)}.\n\n"
                 "Hanh dong nay khong the hoan tac. Ban co muon tiep tuc?"
             ),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+        ):
             return
 
         self._set_ui_busy(True)
         self.progress.setValue(0)
-        self._append_log(f"Bat dau xoa {len(items)} file...")
+        self._log(f"Bat dau xoa {len(items)} file...")
 
         self.delete_thread = QThread(self)
         self.delete_worker = DeleteWorker([item.path for item in items])
         self.delete_worker.moveToThread(self.delete_thread)
         self.delete_thread.started.connect(self.delete_worker.run)
-        self.delete_worker.status.connect(self._append_log)
+        self.delete_worker.status.connect(self._log)
         self.delete_worker.progress.connect(self.progress.setValue)
         self.delete_worker.finished.connect(self._delete_finished)
         self.delete_worker.finished.connect(self.delete_thread.quit)
@@ -638,12 +887,70 @@ class MainWindow(QMainWindow):
         self.delete_thread.finished.connect(self.delete_thread.deleteLater)
         self.delete_thread.start()
 
+    def delete_selected(self) -> None:
+        self._perform_delete(self._selected_items())
+
+    def delete_all(self) -> None:
+        self._perform_delete(self._filtered_and_sorted_items())
+
     @Slot(int, int)
     def _delete_finished(self, deleted: int, errors: int) -> None:
         self._set_ui_busy(False)
         self.progress.setValue(100)
-        self.card_deleted.set_value(f"{deleted:,}")
-        self._append_log(f"Da xoa {deleted} file, loi {errors} file.")
+        self._log(f"Da xoa {deleted} file, loi {errors} file.")
+        self.start_scan()
+
+    def _perform_move_to_staging(self, items: list[BackupItem]) -> None:
+        if not items:
+            QMessageBox.information(self, "Chua chon", "Hay chon it nhat mot file backup can chuyen.")
+            return
+
+        staging = self.staging_root()
+        if staging is None:
+            QMessageBox.warning(self, "Thieu duong dan", "Hay chon thu muc staging truoc.")
+            return
+        if not self._confirm_target_folder(staging):
+            return
+
+        total_size = sum(item.size for item in items)
+        if not self._confirm_action(
+            "Chuyen vao staging",
+            (
+                f"Ban sap chuyen {len(items)} file backup, tong dung luong {human_size(total_size)}\n"
+                f"vao:\n{staging}\n\n"
+                "Day la hanh dong cut/move, khong the hoan tac nhan cau truc."
+            ),
+        ):
+            return
+
+        self._set_ui_busy(True)
+        self.progress.setValue(0)
+        self._log(f"Bat dau chuyen {len(items)} file vao staging: {staging}")
+
+        self.move_thread = QThread(self)
+        self.move_worker = MoveWorker([item.path for item in items], staging)
+        self.move_worker.moveToThread(self.move_thread)
+        self.move_thread.started.connect(self.move_worker.run)
+        self.move_worker.status.connect(self._log)
+        self.move_worker.progress.connect(self.progress.setValue)
+        self.move_worker.finished.connect(self._move_finished)
+        self.move_worker.finished.connect(self.move_thread.quit)
+        self.move_worker.finished.connect(self.move_worker.deleteLater)
+        self.move_thread.finished.connect(self.move_thread.deleteLater)
+        self.move_thread.start()
+
+    def move_selected_to_staging(self) -> None:
+        self._perform_move_to_staging(self._selected_items())
+
+    def move_all_to_staging(self) -> None:
+        self._perform_move_to_staging(self._filtered_and_sorted_items())
+
+    @Slot(int, int)
+    def _move_finished(self, moved: int, errors: int) -> None:
+        self._set_ui_busy(False)
+        self.progress.setValue(100)
+        self._log(f"Da chuyen {moved} file vao staging, loi {errors} file.")
+        self.card_staged.set_value(f"{moved:,}")
         self.start_scan()
 
 
@@ -651,8 +958,10 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Revit Backup Inspector")
     app.setOrganizationName("DoanVan1725")
-    app.setWindowIcon(QIcon())
+    icon = create_app_icon()
+    app.setWindowIcon(icon)
     window = MainWindow()
+    window.setWindowIcon(icon)
     window.show()
     return app.exec()
 
