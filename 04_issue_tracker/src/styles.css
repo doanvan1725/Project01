@@ -106,3 +106,6 @@ td { color: #405875; padding: 12px 10px; vertical-align: top; border-bottom: 1px
 .permission-row strong { color: #294568; font-size: 12px; }
 .permission-row small { color: #9aa8b8; font-size: 9px; margin-top: 4px; }
 .permission-row select { border: 1px solid #dce5ef; border-radius: 6px; padding: 7px 9px; color: #385270; background: #fbfcfe; font-size: 11px; }
+.permission-checks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.permission-checks label { color: #58718f; font-size: 10px; font-weight: 500; }
+.permission-checks input { accent-color: #1e40af; vertical-align: middle; }

@@ -8,6 +8,10 @@ create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null default '',
   role public.user_role not null default 'viewer',
+  can_view boolean not null default true,
+  can_edit boolean not null default false,
+  can_delete boolean not null default false,
+  can_download boolean not null default false,
   created_at timestamptz not null default now()
 );
 

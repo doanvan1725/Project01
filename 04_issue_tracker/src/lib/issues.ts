@@ -2,7 +2,7 @@ import { supabase } from "./supabase";
 import type { Attachment, Issue, IssueStatus, IssueVersion } from "../types";
 import type { UserRole } from "../types";
 
-export type UserProfile = { id: string; fullName: string; role: UserRole };
+export type UserProfile = { id: string; fullName: string; role: UserRole; canView: boolean; canEdit: boolean; canDelete: boolean; canDownload: boolean };
 
 type IssueRow = {
   id: string;
@@ -53,13 +53,17 @@ export async function getCurrentProfile(): Promise<{
   email: string;
   fullName: string;
   role: UserRole;
+  canView: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canDownload: boolean;
 } | null> {
   if (!supabase) return null;
   const { data: userData } = await supabase.auth.getUser();
   if (!userData.user?.email) return null;
   const { data, error } = await supabase
     .from("profiles")
-    .select("full_name, role")
+    .select("full_name, role, can_view, can_edit, can_delete, can_download")
     .eq("id", userData.user.id)
     .maybeSingle();
   if (error) throw error;
@@ -68,19 +72,29 @@ export async function getCurrentProfile(): Promise<{
     email: userData.user.email,
     fullName: data.full_name,
     role: data.role as UserRole,
+    canView: data.can_view,
+    canEdit: data.can_edit,
+    canDelete: data.can_delete,
+    canDownload: data.can_download,
   };
 }
 
 export async function fetchProfiles(): Promise<UserProfile[]> {
   if (!supabase) return [];
-  const { data, error } = await supabase.from("profiles").select("id, full_name, role").order("created_at", { ascending: true });
+  const { data, error } = await supabase.from("profiles").select("id, full_name, role, can_view, can_edit, can_delete, can_download").order("created_at", { ascending: true });
   if (error) throw error;
-  return (data ?? []).map((row) => ({ id: row.id, fullName: row.full_name, role: row.role as UserRole }));
+  return (data ?? []).map((row) => ({ id: row.id, fullName: row.full_name, role: row.role as UserRole, canView: row.can_view, canEdit: row.can_edit, canDelete: row.can_delete, canDownload: row.can_download }));
 }
 
 export async function updateUserRole(id: string, role: UserRole): Promise<void> {
   if (!supabase) throw new Error("Supabase chua duoc cau hinh");
   const { error } = await supabase.from("profiles").update({ role }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function updateUserPermission(id: string, permission: "can_view" | "can_edit" | "can_delete" | "can_download", value: boolean): Promise<void> {
+  if (!supabase) throw new Error("Supabase chua duoc cau hinh");
+  const { error } = await supabase.from("profiles").update({ [permission]: value }).eq("id", id);
   if (error) throw error;
 }
 

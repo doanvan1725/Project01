@@ -57,6 +57,7 @@ import {
   signOut,
   signUp,
   updateIssue,
+  updateUserPermission,
   updateUserRole,
   uploadAttachment,
 } from "./lib/issues";
@@ -205,6 +206,10 @@ function App() {
     email: string;
     fullName: string;
     role: UserRole;
+    canView: boolean;
+    canEdit: boolean;
+    canDelete: boolean;
+    canDownload: boolean;
   } | null>(null);
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
   const [mobileNav, setMobileNav] = useState(false);
@@ -248,9 +253,11 @@ function App() {
       .finally(() => setLoading(false));
   }, [profile]);
 
-  const canCreate = role === "admin" || role === "editor";
+  const canView = !supabase || profile?.canView !== false;
+  const canCreate = !supabase ? role !== "viewer" : profile?.canEdit === true;
   const canEdit = canCreate;
-  const canDelete = role === "admin";
+  const canDelete = !supabase ? role === "admin" : profile?.canDelete === true;
+  const canDownload = !supabase || profile?.canDownload === true;
   const filteredIssues = useMemo(
     () =>
       issues.filter((issue) => {
@@ -510,6 +517,14 @@ function App() {
     finally { setBusy(false); }
   }
 
+  async function changePermission(id: string, permission: "canView" | "canEdit" | "canDelete" | "canDownload", value: boolean) {
+    const column = { canView: "can_view", canEdit: "can_edit", canDelete: "can_delete", canDownload: "can_download" }[permission] as "can_view" | "can_edit" | "can_delete" | "can_download";
+    setBusy(true); setError("");
+    try { await updateUserPermission(id, column, value); setUsers((current) => current.map((user) => user.id === id ? { ...user, [permission]: value } : user)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Khong the cap nhat quyen"); }
+    finally { setBusy(false); }
+  }
+
   if (isSupabaseConfigured && !authReady)
     return (
       <div className="auth-loading">
@@ -517,6 +532,7 @@ function App() {
       </div>
     );
   if (isSupabaseConfigured && !profile) return <AuthScreen />;
+  if (isSupabaseConfigured && profile && !canView) return <div className="auth-screen"><div className="auth-card"><h1>Chưa được cấp quyền xem</h1><p className="auth-note">Quản trị viên cần bật quyền Xem cho tài khoản này.</p><button className="primary-button" onClick={() => void handleLogout()}><LogOut size={17} /> Đăng xuất</button></div></div>;
 
   return (
     <div className="app-shell">
@@ -814,6 +830,7 @@ function App() {
                               <button
                                 key={`${issue.id}-${attachment.name}`}
                                 className={attachmentClass(attachment)}
+                                disabled={!canDownload}
                                 type="button"
                                 onClick={() => void handleDownload(attachment)}
                                 title={attachment.name}
@@ -977,7 +994,7 @@ function App() {
       {activeModal === "version" && versionTarget && (
         <VersionModal issue={versionTarget} versions={versions} busy={busy} onClose={() => { setActiveModal(null); setVersionTarget(null); }} onSubmit={handleVersion} onDownload={handleDownload} />
       )}
-      {activeModal === "permissions" && <PermissionsModal users={users} busy={busy} onClose={() => setActiveModal(null)} onChangeRole={changeRole} />}
+      {activeModal === "permissions" && <PermissionsDetailModal users={users} busy={busy} onClose={() => setActiveModal(null)} onChangeRole={changeRole} onChangePermission={changePermission} />}
       {activeModal === "view" && viewTarget && (
         <Modal
           title="Chi tiết nội dung Issue"
@@ -1002,6 +1019,7 @@ function App() {
                   type="button"
                   onClick={() => void handleDownload(attachment)}
                   className="detail-file"
+                  disabled={!canDownload}
                 >
                   {fileIcon(attachment)} {attachment.name}
                   <ArrowDownToLine size={15} />
@@ -1136,6 +1154,11 @@ function AuthScreen() {
 
 function PermissionsModal({ users, busy, onClose, onChangeRole }: { users: UserProfile[]; busy: boolean; onClose: () => void; onChangeRole: (id: string, role: UserRole) => void }) {
   return <Modal title="Phân quyền người dùng" onClose={onClose} wide><div className="permissions-list">{users.length === 0 ? <p className="muted">Chưa có người dùng nào.</p> : users.map((user) => <div className="permission-row" key={user.id}><div><strong>{user.fullName || "Chưa đặt tên"}</strong><small>{user.id}</small></div><select value={user.role} disabled={busy} onChange={(event) => void onChangeRole(user.id, event.target.value as UserRole)}><option value="admin">Admin</option><option value="editor">Editor</option><option value="viewer">Viewer</option></select></div>)}</div></Modal>;
+}
+
+function PermissionsDetailModal({ users, busy, onClose, onChangeRole, onChangePermission }: { users: UserProfile[]; busy: boolean; onClose: () => void; onChangeRole: (id: string, role: UserRole) => void; onChangePermission: (id: string, permission: "canView" | "canEdit" | "canDelete" | "canDownload", value: boolean) => void }) {
+  const permissions = [["canView", "Xem"], ["canEdit", "Sua"], ["canDelete", "Xoa"], ["canDownload", "Tai file"]] as const;
+  return <Modal title="Permissions" onClose={onClose} wide><div className="permissions-list">{users.map((user) => <div className="permission-row" key={user.id}><div><strong>{user.fullName || "Chua dat ten"}</strong><small>{user.id}</small><div className="permission-checks">{permissions.map(([key, label]) => <label key={key}><input type="checkbox" checked={user[key]} disabled={busy} onChange={(event) => void onChangePermission(user.id, key, event.target.checked)} /> {label}</label>)}</div></div><select value={user.role} disabled={busy} onChange={(event) => void onChangeRole(user.id, event.target.value as UserRole)}><option value="admin">Admin</option><option value="editor">Editor</option><option value="viewer">Viewer</option></select></div>)}</div></Modal>;
 }
 
 function CreateModal({
