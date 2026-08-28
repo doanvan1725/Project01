@@ -1001,6 +1001,14 @@ function AuthScreen() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    if (params.get("error_code") === "otp_expired") {
+      setError("Link xác nhận email đã hết hạn hoặc đã được sử dụng. Hãy đăng ký lại hoặc yêu cầu gửi lại email mới.");
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
