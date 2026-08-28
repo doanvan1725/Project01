@@ -1,0 +1,12 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+01_backup/target/
