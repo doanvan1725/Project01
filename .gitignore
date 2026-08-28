@@ -9,6 +9,10 @@ dist/
 02_revit_backup/__pycache__/
 02_revit_backup/logs/
 02_revit_backup/revit_backup_stage/
+03_pc_cleaner/build/
+03_pc_cleaner/dist/
+03_pc_cleaner/__pycache__/
+03_pc_cleaner/logs/
 *.spec
 *.log
 .pytest_cache/
