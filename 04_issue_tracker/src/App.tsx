@@ -168,7 +168,7 @@ function Modal({
       >
         <div className="modal-header">
           <div>
-            <p className="eyebrow">ISSUE TRACKER</p>
+            <p className="eyebrow">VCI.SBGB.ISSUE</p>
             <h2>{title}</h2>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Đóng">
@@ -543,9 +543,9 @@ function App() {
           </div>
           <div>
             <strong>
-              ISSUE<span>TRACKER</span>
+              VCI<span>.SBGB.ISSUE</span>
             </strong>
-            <small>BIM PROJECT CONTROL</small>
+              <small>PROJECT ISSUE CONTROL</small>
           </div>
         </div>
         <nav className="main-nav">
@@ -602,7 +602,7 @@ function App() {
           <div className="breadcrumb">
             <span>DỰ ÁN</span>
             <ChevronRight size={14} />
-            <strong>ISSUE TRACKER</strong>
+            <strong>VCI.SBGB.ISSUE</strong>
           </div>
           <div className="top-actions">
             <div className="role-switch">
@@ -1080,9 +1080,9 @@ function AuthScreen() {
           </div>
           <div>
             <strong>
-              ISSUE<span>TRACKER</span>
+              VCI<span>.SBGB.ISSUE</span>
             </strong>
-            <small>BIM PROJECT CONTROL</small>
+              <small>PROJECT ISSUE CONTROL</small>
           </div>
         </div>
         <p className="eyebrow blue">KHÔNG GIAN LÀM VIỆC</p>
