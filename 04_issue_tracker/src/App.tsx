@@ -53,6 +53,7 @@ import {
   getCurrentProfile,
   removeIssue,
   signIn,
+  signOut,
   signUp,
   updateIssue,
   uploadAttachment,
@@ -481,6 +482,15 @@ function App() {
     }
   }
 
+  async function handleLogout() {
+    setBusy(true);
+    setError("");
+    setProfile(null);
+    try { await signOut(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Khong the dang xuat"); }
+    finally { setBusy(false); }
+  }
+
   if (isSupabaseConfigured && !authReady)
     return (
       <div className="auth-loading">
@@ -532,9 +542,8 @@ function App() {
           </div>
           <button
             className="nav-item logout"
-            onClick={() => {
-              if (supabase) void supabase.auth.signOut();
-            }}
+            onClick={() => void handleLogout()}
+            disabled={busy}
           >
             <LogOut size={18} /> Đăng xuất
           </button>

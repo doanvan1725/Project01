@@ -59,8 +59,9 @@ export async function getCurrentProfile(): Promise<{
     .from("profiles")
     .select("full_name, role")
     .eq("id", userData.user.id)
-    .single();
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error("Tai khoan chua co ho so quyen. Hay chay schema.sql trong Supabase SQL Editor.");
   return {
     email: userData.user.email,
     fullName: data.full_name,
@@ -71,6 +72,12 @@ export async function getCurrentProfile(): Promise<{
 export async function signIn(email: string, password: string): Promise<void> {
   if (!supabase) return;
   const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+}
+
+export async function signOut(): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.auth.signOut();
   if (error) throw error;
 }
 
