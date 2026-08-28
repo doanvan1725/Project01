@@ -1085,6 +1085,15 @@ function AuthScreen() {
 
   return (
     <div className="auth-screen">
+      <section className="auth-visual">
+        <div className="auth-logo-orbit"><div className="auth-logo-core">VCI<br /><span>360</span></div></div>
+        <p className="auth-kicker">NỀN TẢNG SỐ</p>
+        <h2>QUẢN LÝ <span>DỰ ÁN</span></h2>
+        <div className="auth-divider" />
+        <p className="auth-intro"><strong>VCI360</strong> - Nền tảng số quản lý dự án xây dựng: tiến độ, khối lượng, chi phí, nghiệm thu an toàn...</p>
+        <div className="auth-cube"><span>LỚP DỮ LIỆU</span><span>MÔ HÌNH BIM</span><span>HIỆN TRƯỜNG</span></div>
+        <div className="auth-highlights"><div><b>01</b><span>Theo dõi tiến độ và khối lượng theo thời gian thực</span></div><div><b>02</b><span>Kiểm soát chi phí, hồ sơ và phê duyệt tập trung</span></div><div><b>03</b><span>Tổng hợp, báo cáo rõ ràng, realtime</span></div></div>
+      </section>
       <div className="auth-card">
         <div className="auth-brand">
           <div className="brand-mark">
