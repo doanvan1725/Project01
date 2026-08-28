@@ -3,7 +3,6 @@ export interface Env {
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
-  PUBLIC_BASE_URL: string;
 }
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
@@ -39,7 +38,7 @@ export default {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
       const key = `issues/${crypto.randomUUID()}-${safeName}`;
       await env.FILES.put(key, file.stream(), { httpMetadata: { contentType: file.type || "application/octet-stream" } });
-      return response(JSON.stringify({ name: file.name, url: `${env.PUBLIC_BASE_URL.replace(/\/$/, "")}/download?key=${encodeURIComponent(key)}`, kind: "file", mimeType: file.type }));
+      return response(JSON.stringify({ name: file.name, url: `${url.origin}/download?key=${encodeURIComponent(key)}`, kind: "file", mimeType: file.type }));
     }
 
     if (request.method === "GET" && url.pathname === "/download") {
