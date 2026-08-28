@@ -1,4 +1,4 @@
-import { r2ApiUrl, supabase } from "./supabase";
+import { supabase } from "./supabase";
 import type { Attachment, Issue, IssueStatus, IssueVersion } from "../types";
 import type { UserRole } from "../types";
 
@@ -244,15 +244,6 @@ export async function uploadAttachment(file: File): Promise<Attachment> {
       kind: "file",
       mimeType: file.type,
     };
-  if (r2ApiUrl) {
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (!sessionData.session) throw new Error("Phien dang nhap da het han");
-    const body = new FormData();
-    body.append("file", file);
-    const response = await fetch(`${r2ApiUrl}/upload`, { method: "POST", headers: { Authorization: `Bearer ${sessionData.session.access_token}` }, body });
-    if (!response.ok) throw new Error((await response.text()) || "Khong the upload file len R2");
-    return await response.json() as Attachment;
-  }
   const safeName = `issues/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
   const { error } = await supabase.storage
     .from("issue-files")
@@ -274,12 +265,7 @@ export async function downloadAttachment(
     window.open(attachment.url, "_blank", "noopener,noreferrer");
     return;
   }
-  const headers: HeadersInit = {};
-  if (r2ApiUrl && attachment.url.startsWith(r2ApiUrl) && supabase) {
-    const { data } = await supabase.auth.getSession();
-    if (data.session) headers.Authorization = `Bearer ${data.session.access_token}`;
-  }
-  const response = await fetch(attachment.url, { headers });
+  const response = await fetch(attachment.url);
   if (!response.ok) throw new Error(`Khong the tai file (${response.status})`);
   const blob = await response.blob();
   const objectUrl = URL.createObjectURL(blob);

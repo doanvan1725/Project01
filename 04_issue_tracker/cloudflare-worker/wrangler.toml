@@ -1,7 +1,0 @@
-name = "vcisbgb-issue-files"
-main = "src/index.ts"
-compatibility_date = "2026-08-28"
-
-[[r2_buckets]]
-binding = "FILES"
-bucket_name = "vcisbgb-issue-files"
