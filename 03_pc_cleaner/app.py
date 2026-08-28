@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import sys
+from heapq import heappush, heapreplace
+from threading import Event
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +15,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QLinearGradien
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -29,6 +32,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+
+MAX_DISPLAY_ITEMS = 5000
 
 
 @dataclass(frozen=True)
@@ -95,23 +101,29 @@ def expand_targets(targets: list[tuple[str, Path]]) -> list[tuple[str, Path]]:
     return expanded
 
 
-def scan_targets(targets: list[tuple[str, Path]], progress_cb=None, status_cb=None) -> list[CleanItem]:
-    items: list[CleanItem] = []
+def scan_targets(targets: list[tuple[str, Path]], progress_cb=None, status_cb=None, stop_cb=None) -> list[CleanItem]:
+    top_items: list[tuple[int, int, CleanItem]] = []
     processed = 0
+    sequence = 0
     for category, root in expand_targets(targets):
         if status_cb:
             status_cb(f"Dang quet {category}...")
         for path in iter_files(root):
+            if stop_cb and stop_cb():
+                return [entry[2] for entry in sorted(top_items, reverse=True)]
             processed += 1
-            if progress_cb and processed % 250 == 0:
-                progress_cb(min(processed % 100, 99))
             try:
                 stat = path.stat()
-                items.append(CleanItem(path, category, stat.st_size, datetime.fromtimestamp(stat.st_mtime)))
+                item = CleanItem(path, category, stat.st_size, datetime.fromtimestamp(stat.st_mtime))
+                entry = (item.size, sequence, item)
+                sequence += 1
+                if len(top_items) < MAX_DISPLAY_ITEMS:
+                    heappush(top_items, entry)
+                elif entry[:2] > top_items[0][:2]:
+                    heapreplace(top_items, entry)
             except (OSError, PermissionError):
                 continue
-    items.sort(key=lambda item: (item.size, item.modified), reverse=True)
-    return items
+    return [entry[2] for entry in sorted(top_items, reverse=True)]
 
 
 class ScanWorker(QObject):
@@ -122,12 +134,16 @@ class ScanWorker(QObject):
     def __init__(self, targets: list[tuple[str, Path]]) -> None:
         super().__init__()
         self.targets = targets
+        self.stop_requested = Event()
+
+    def request_stop(self) -> None:
+        self.stop_requested.set()
 
     @Slot()
     def run(self) -> None:
         try:
-            items = scan_targets(self.targets, self.progress.emit, self.status.emit)
-            self.finished.emit(items, 0)
+            items = scan_targets(self.targets, status_cb=self.status.emit, stop_cb=self.stop_requested.is_set)
+            self.finished.emit(items, 2 if self.stop_requested.is_set() else 0)
         except Exception as exc:  # pragma: no cover - surfaced in UI
             self.status.emit(f"Scan failed: {exc}")
             self.finished.emit([], 1)
@@ -187,7 +203,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("PC Cleaner")
         self.resize(1380, 900)
-        self.targets = default_targets()
+        self.default_target_list = default_targets()
+        self.extra_targets: list[tuple[str, Path]] = []
+        self.target_checks: dict[str, QCheckBox] = {}
         self.items: list[CleanItem] = []
         self.scan_thread: QThread | None = None
         self.scan_worker: ScanWorker | None = None
@@ -247,6 +265,9 @@ class MainWindow(QMainWindow):
         controls_layout.setContentsMargins(18, 15, 18, 15)
         self.scan_button = QPushButton("Quet may")
         self.scan_button.clicked.connect(self.start_scan)
+        self.stop_button = QPushButton("Dung quet")
+        self.stop_button.clicked.connect(self.stop_scan)
+        self.stop_button.setDisabled(True)
         self.select_all_button = QPushButton("Chon tat ca")
         self.select_all_button.clicked.connect(lambda: self.set_all_checked(True))
         self.clear_button = QPushButton("Bo chon tat ca")
@@ -258,11 +279,25 @@ class MainWindow(QMainWindow):
         self.add_folder_button = QPushButton("Them thu muc quet")
         self.add_folder_button.clicked.connect(self.add_scan_folder)
         controls_layout.addWidget(self.scan_button, 0, 0)
-        controls_layout.addWidget(self.add_folder_button, 0, 1)
-        controls_layout.addWidget(self.select_all_button, 0, 2)
-        controls_layout.addWidget(self.clear_button, 0, 3)
-        controls_layout.addWidget(self.clean_button, 0, 4)
-        controls_layout.addWidget(self.open_button, 0, 5)
+        controls_layout.addWidget(self.stop_button, 0, 1)
+        controls_layout.addWidget(self.add_folder_button, 0, 2)
+        controls_layout.addWidget(self.select_all_button, 0, 3)
+        controls_layout.addWidget(self.clear_button, 0, 4)
+        controls_layout.addWidget(self.clean_button, 0, 5)
+        controls_layout.addWidget(self.open_button, 0, 6)
+
+        category_widget = QWidget()
+        category_layout = QHBoxLayout(category_widget)
+        category_layout.setContentsMargins(0, 0, 0, 0)
+        category_layout.setSpacing(14)
+        category_layout.addWidget(QLabel("Nhom quet:"))
+        for category, _path in self.default_target_list:
+            check = QCheckBox(category)
+            check.setChecked(category == "User Temp")
+            self.target_checks[category] = check
+            category_layout.addWidget(check)
+        category_layout.addStretch(1)
+        controls_layout.addWidget(category_widget, 1, 0, 1, 7)
         layout.addWidget(controls)
 
         table_panel = QFrame()
@@ -333,20 +368,31 @@ class MainWindow(QMainWindow):
     def _set_busy(self, busy: bool) -> None:
         for button in (self.scan_button, self.add_folder_button, self.select_all_button, self.clear_button, self.clean_button):
             button.setDisabled(busy)
+        self.stop_button.setEnabled(busy)
+        for check in self.target_checks.values():
+            check.setDisabled(busy)
 
     def add_scan_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Chon thu muc bo sung")
         if folder:
-            self.targets.append((f"Thu muc them - {Path(folder).name}", Path(folder)))
+            self.extra_targets.append((f"Thu muc them - {Path(folder).name}", Path(folder)))
             self.path_label.setText(f"Da them: {folder}")
             self._log(f"Them thu muc quet: {folder}")
 
     def start_scan(self) -> None:
+        selected_targets = [
+            (category, path)
+            for category, path in self.default_target_list
+            if self.target_checks[category].isChecked()
+        ] + self.extra_targets
+        if not selected_targets:
+            QMessageBox.information(self, "Chua chon nhom", "Hay chon it nhat mot nhom du lieu de quet.")
+            return
         self._set_busy(True)
-        self.progress.setValue(0)
-        self._log("Bat dau quet cac thu muc temp/cache...")
+        self.progress.setRange(0, 0)
+        self._log(f"Bat dau quet {len(selected_targets)} nhom du lieu...")
         self.scan_thread = QThread(self)
-        self.scan_worker = ScanWorker(self.targets)
+        self.scan_worker = ScanWorker(selected_targets)
         self.scan_worker.moveToThread(self.scan_thread)
         self.scan_thread.started.connect(self.scan_worker.run)
         self.scan_worker.status.connect(self._log)
@@ -357,13 +403,23 @@ class MainWindow(QMainWindow):
         self.scan_thread.finished.connect(self.scan_thread.deleteLater)
         self.scan_thread.start()
 
+    def stop_scan(self) -> None:
+        if self.scan_worker is not None:
+            self.scan_worker.request_stop()
+            self.stop_button.setDisabled(True)
+            self._log("Dang yeu cau dung scan...")
+
     @Slot(object, int)
     def _scan_finished(self, items: object, error_code: int) -> None:
         self._set_busy(False)
         self.items = items if error_code == 0 else []
         self._refresh_table()
-        self.progress.setValue(100 if error_code == 0 else 0)
-        self._log(f"Quet xong: {len(self.items):,} file co the don.")
+        self.progress.setRange(0, 100)
+        self.progress.setValue(100 if error_code in {0, 2} else 0)
+        if error_code == 2:
+            self._log(f"Da dung scan. Hien thi {len(self.items):,} file lon nhat.")
+        else:
+            self._log(f"Quet xong: hien thi {len(self.items):,} file lon nhat (gioi han {MAX_DISPLAY_ITEMS:,}).")
 
     def _refresh_table(self) -> None:
         self.table.blockSignals(True)
@@ -379,10 +435,12 @@ class MainWindow(QMainWindow):
                     table_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.table.setItem(row, col, table_item)
         self.table.blockSignals(False)
-        self.table.resizeColumnsToContents()
         self.table.setColumnWidth(0, 55)
-        self.table.setColumnWidth(1, max(220, self.table.columnWidth(1)))
-        self.table.setColumnWidth(5, max(360, self.table.columnWidth(5)))
+        self.table.setColumnWidth(1, 260)
+        self.table.setColumnWidth(2, 180)
+        self.table.setColumnWidth(3, 110)
+        self.table.setColumnWidth(4, 160)
+        self.table.setColumnWidth(5, 560)
         self.card_files.set_value(f"{len(self.items):,}")
         self.card_size.set_value(human_size(sum(item.size for item in self.items)))
         self.card_categories.set_value(f"{len({item.category for item in self.items}):,}")

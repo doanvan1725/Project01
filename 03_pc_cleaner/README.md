@@ -3,6 +3,9 @@
 Ung dung Python don dep Windows theo huong an toan:
 
 - quet file tam va cache pho bien
+- mac dinh chi quet User Temp, co the bat them tung nhom cache
+- gioi han bang hien thi 5.000 file lon nhat de tiet kiem RAM
+- co nut dung scan khi thu muc qua lon
 - thong ke so file, dung luong va nhom du lieu
 - chon/bat chon tung file hoac tat ca
 - highlight file se duoc don de xem lai truoc
