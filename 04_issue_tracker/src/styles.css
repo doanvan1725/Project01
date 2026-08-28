@@ -109,3 +109,11 @@ td { color: #405875; padding: 12px 10px; vertical-align: top; border-bottom: 1px
 .permission-checks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
 .permission-checks label { color: #58718f; font-size: 10px; font-weight: 500; }
 .permission-checks input { accent-color: #1e40af; vertical-align: middle; }
+.feature-page { padding: 36px; }
+.feature-heading { display: flex; justify-content: space-between; align-items: end; color: #2774c9; margin-bottom: 22px; }
+.feature-heading h1 { margin: 0; }
+.feature-card { background: white; border: 1px solid #e4eaf2; border-radius: 12px; padding: 22px; box-shadow: 0 5px 18px #253b5b06; }
+.feature-card-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 13px; }
+.feature-card-title h2 { color: #1d3558; font-size: 16px; margin: 0; }.feature-card-title > span { color: #96a5b6; font-size: 11px; }
+.member-row, .library-row { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-top: 1px solid #edf1f5; }.member-row > div:nth-child(2), .library-row > div { flex: 1; }.member-row strong, .member-row small, .library-row strong, .library-row small { display: block; }.member-row strong, .library-row strong { color: #355476; font-size: 12px; }.member-row small, .library-row small { color: #9aa8b8; font-size: 10px; margin-top: 3px; }.library-row .attachment { flex: 0 0 auto; }.library-search { width: 220px; }
+@media (max-width: 760px) { .feature-page { padding: 26px 16px; }.feature-heading { align-items: flex-start; }.feature-card { padding: 17px; }.feature-card-title { align-items: flex-start; flex-direction: column; }.library-search { width: 100%; }.library-row { align-items: flex-start; flex-wrap: wrap; }.library-row .secondary-button { margin-left: 38px; } }

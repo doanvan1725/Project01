@@ -213,6 +213,7 @@ function App() {
   } | null>(null);
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
   const [mobileNav, setMobileNav] = useState(false);
+  const [activeSection, setActiveSection] = useState<"dashboard" | "members" | "library">("dashboard");
 
   useEffect(() => {
     if (!supabase) return;
@@ -510,6 +511,15 @@ function App() {
     finally { setBusy(false); }
   }
 
+  async function openMembers() {
+    setActiveSection("members");
+    if (!supabase || users.length) return;
+    setBusy(true); setError("");
+    try { setUsers(await fetchProfiles()); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Khong the tai danh sach thanh vien"); }
+    finally { setBusy(false); }
+  }
+
   async function changeRole(id: string, nextRole: UserRole) {
     setBusy(true); setError("");
     try { await updateUserRole(id, nextRole); setUsers((current) => current.map((user) => user.id === id ? { ...user, role: nextRole } : user)); }
@@ -550,13 +560,13 @@ function App() {
         </div>
         <nav className="main-nav">
           <p className="nav-label">TỔNG QUAN</p>
-          <button className="nav-item active">
+          <button className={`nav-item ${activeSection === "dashboard" ? "active" : ""}`} onClick={() => setActiveSection("dashboard")}>
             <LayoutDashboard size={18} /> Bảng theo dõi
           </button>
-          <button className="nav-item">
+          <button className={`nav-item ${activeSection === "members" ? "active" : ""}`} onClick={() => void openMembers()}>
             <UsersRound size={18} /> Thành viên
           </button>
-          <button className="nav-item">
+          <button className={`nav-item ${activeSection === "library" ? "active" : ""}`} onClick={() => setActiveSection("library")}>
             <FolderOpen size={18} /> Thư viện hồ sơ
           </button>
           <p className="nav-label nav-gap">HỆ THỐNG</p>
@@ -638,6 +648,7 @@ function App() {
             </div>
           </div>
         </header>
+        {activeSection === "members" ? <MembersPage users={users} busy={busy} /> : activeSection === "library" ? <LibraryPage issues={issues} canDownload={canDownload} onDownload={handleDownload} /> : <>
         <section className="page-heading">
           <div>
             <p className="eyebrow blue">QUẢN LÝ PHỐI HỢP DỰ ÁN</p>
@@ -956,6 +967,7 @@ function App() {
             </div>
           </div>
         </section>
+        </>}
         <footer className="page-footer">
           <span>
             <CloudUpload size={14} /> Dữ liệu được đồng bộ an toàn
@@ -1159,6 +1171,17 @@ function PermissionsModal({ users, busy, onClose, onChangeRole }: { users: UserP
 function PermissionsDetailModal({ users, busy, onClose, onChangeRole, onChangePermission }: { users: UserProfile[]; busy: boolean; onClose: () => void; onChangeRole: (id: string, role: UserRole) => void; onChangePermission: (id: string, permission: "canView" | "canEdit" | "canDelete" | "canDownload", value: boolean) => void }) {
   const permissions = [["canView", "Xem"], ["canEdit", "Sua"], ["canDelete", "Xoa"], ["canDownload", "Tai file"]] as const;
   return <Modal title="Permissions" onClose={onClose} wide><div className="permissions-list">{users.map((user) => <div className="permission-row" key={user.id}><div><strong>{user.fullName || "Chua dat ten"}</strong><small>{user.id}</small><div className="permission-checks">{permissions.map(([key, label]) => <label key={key}><input type="checkbox" checked={user[key]} disabled={busy} onChange={(event) => void onChangePermission(user.id, key, event.target.checked)} /> {label}</label>)}</div></div><select value={user.role} disabled={busy} onChange={(event) => void onChangeRole(user.id, event.target.value as UserRole)}><option value="admin">Admin</option><option value="editor">Editor</option><option value="viewer">Viewer</option></select></div>)}</div></Modal>;
+}
+
+function MembersPage({ users, busy }: { users: UserProfile[]; busy: boolean }) {
+  return <section className="feature-page"><div className="feature-heading"><div><p className="eyebrow blue">WORKSPACE</p><h1>Thành viên</h1><p className="heading-note">Danh sách người dùng và vai trò trong dự án.</p></div><UsersRound size={38} /></div><div className="feature-card"><div className="feature-card-title"><h2>Danh sách thành viên</h2><span>{users.length} tài khoản</span></div>{busy ? <p className="muted">Đang tải...</p> : users.length === 0 ? <p className="muted">Chưa có dữ liệu thành viên.</p> : users.map((user) => <div className="member-row" key={user.id}><div className="mini-avatar">{user.fullName.slice(0, 2).toUpperCase()}</div><div><strong>{user.fullName || "Chưa đặt tên"}</strong><small>ID: {user.id}</small></div><span className="role-pill">{roleLabel[user.role]}</span></div>)}</div></section>;
+}
+
+function LibraryPage({ issues, canDownload, onDownload }: { issues: Issue[]; canDownload: boolean; onDownload: (attachment: Attachment) => void }) {
+  const [query, setQuery] = useState("");
+  const files = issues.flatMap((issue) => issue.attachments.map((attachment) => ({ issue, attachment })));
+  const filtered = files.filter(({ issue, attachment }) => `${attachment.name} ${issue.category} ${issue.creatorName}`.toLowerCase().includes(query.toLowerCase()));
+  return <section className="feature-page"><div className="feature-heading"><div><p className="eyebrow blue">DOCUMENT CONTROL</p><h1>Thư viện hồ sơ</h1><p className="heading-note">Tập trung toàn bộ file đính kèm và hồ sơ theo Issue.</p></div><FolderOpen size={38} /></div><div className="feature-card"><div className="feature-card-title"><h2>Hồ sơ đính kèm</h2><label className="search-box library-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên file..." /></label></div>{filtered.length === 0 ? <p className="muted">Chưa có hồ sơ phù hợp.</p> : filtered.map(({ issue, attachment }) => <div className="library-row" key={`${issue.id}-${attachment.name}`}><span className={attachmentClass(attachment)}>{fileIcon(attachment)}</span><div><strong>{attachment.name}</strong><small>{issue.category} · {issue.creatorName}</small></div><button className="secondary-button" disabled={!canDownload} onClick={() => onDownload(attachment)}><Download size={15} /> Tải file</button></div>)}</div></section>;
 }
 
 function CreateModal({
