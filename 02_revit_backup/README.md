@@ -7,6 +7,8 @@ App Python giao dien desktop de:
 - loc tim nhanh theo ten, thu muc, loai backup
 - xoa file backup da chon hoac xoa toan bo ket qua
 - chuyen file vao thu muc staging do ban chi dinh truoc khi xoa
+- danh dau file se move sang staging bang mau highlight rieng de kiem tra truoc
+- chon tat ca, bo chon tat ca va move rieng cac file da danh dau
 - keo-tha thu muc truc tiep vao o duong dan
 - ghi log ra file va mo nhanh thu muc nguon/staging
 
@@ -34,6 +36,8 @@ Workflow trong `.github/workflows/build-windows.yml` se:
 3. cai dependencies
 4. dong goi bang PyInstaller
 5. upload file `RevitBackupInspector.exe` nhu artifact
+
+Workflow tu dong nhung icon `revit_backup_inspector.ico` vao EXE Windows. EXE la ban portable, chi can tai artifact ve va chay, khong cai vao o C.
 
 ## Quy tac nhan dien file backup
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterable
 
 from PySide6.QtCore import QDateTime, QObject, QThread, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QLinearGradient, QPainter, QPalette, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QLinearGradient, QPainter, QPalette, QPixmap, QBrush
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -344,6 +344,7 @@ class MainWindow(QMainWindow):
         self.move_thread: QThread | None = None
         self.move_worker: MoveWorker | None = None
         self.backup_items: list[BackupItem] = []
+        self.staging_marked: set[Path] = set()
         self.log_path = self._init_log_file()
 
         self._build_ui()
@@ -401,7 +402,7 @@ class MainWindow(QMainWindow):
         self.card_total = MetricCard("Tong backup", "0", "#4da3ff")
         self.card_size = MetricCard("Tong dung luong", "0 B", "#17c964")
         self.card_selected = MetricCard("Dang chon", "0", "#ffb020")
-        self.card_staged = MetricCard("Da chuyen staging", "0", "#a855f7")
+        self.card_staged = MetricCard("Cho staging", "0", "#a855f7")
         cards_layout.addWidget(self.card_total, 0, 0)
         cards_layout.addWidget(self.card_size, 0, 1)
         cards_layout.addWidget(self.card_selected, 0, 2)
@@ -443,11 +444,26 @@ class MainWindow(QMainWindow):
         self.delete_selected_button = QPushButton("Xoa muc dang chon")
         self.delete_selected_button.clicked.connect(self.delete_selected)
 
+        self.select_all_button = QPushButton("Chon tat ca")
+        self.select_all_button.clicked.connect(self.select_all_rows)
+
+        self.clear_selection_button = QPushButton("Bo chon tat ca")
+        self.clear_selection_button.clicked.connect(self.clear_all_rows)
+
         self.delete_all_button = QPushButton("Xoa toan bo ket qua")
         self.delete_all_button.clicked.connect(self.delete_all)
 
         self.move_selected_button = QPushButton("Chuyen muc chon vao staging")
         self.move_selected_button.clicked.connect(self.move_selected_to_staging)
+
+        self.mark_staging_button = QPushButton("Danh dau staging")
+        self.mark_staging_button.clicked.connect(self.mark_selected_for_staging)
+
+        self.unmark_staging_button = QPushButton("Bo danh dau")
+        self.unmark_staging_button.clicked.connect(self.unmark_selected_for_staging)
+
+        self.move_marked_button = QPushButton("Chuyen muc da danh dau")
+        self.move_marked_button.clicked.connect(self.move_marked_to_staging)
 
         self.move_all_button = QPushButton("Chuyen tat ca vao staging")
         self.move_all_button.clicked.connect(self.move_all_to_staging)
@@ -471,15 +487,20 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.sort_combo, 3, 1)
         controls_layout.addWidget(self.scan_button, 3, 2)
         controls_layout.addWidget(self.delete_selected_button, 3, 3)
-        controls_layout.addWidget(QLabel("Thu muc staging"), 4, 0, 1, 2)
-        controls_layout.addWidget(self.staging_edit, 5, 0, 1, 3)
-        controls_layout.addWidget(staging_browse_btn, 5, 3)
-        controls_layout.addWidget(self.move_selected_button, 6, 0)
-        controls_layout.addWidget(self.move_all_button, 6, 1)
-        controls_layout.addWidget(self.delete_all_button, 6, 2)
-        controls_layout.addWidget(self.open_selected_button, 6, 3)
-        controls_layout.addWidget(self.open_source_button, 7, 0)
-        controls_layout.addWidget(self.open_staging_button, 7, 1)
+        controls_layout.addWidget(self.select_all_button, 4, 0)
+        controls_layout.addWidget(self.clear_selection_button, 4, 1)
+        controls_layout.addWidget(self.delete_all_button, 4, 2)
+        controls_layout.addWidget(self.open_selected_button, 4, 3)
+        controls_layout.addWidget(QLabel("Thu muc staging"), 5, 0, 1, 2)
+        controls_layout.addWidget(self.staging_edit, 6, 0, 1, 3)
+        controls_layout.addWidget(staging_browse_btn, 6, 3)
+        controls_layout.addWidget(self.mark_staging_button, 7, 0)
+        controls_layout.addWidget(self.unmark_staging_button, 7, 1)
+        controls_layout.addWidget(self.move_marked_button, 7, 2)
+        controls_layout.addWidget(self.move_selected_button, 7, 3)
+        controls_layout.addWidget(self.move_all_button, 8, 0)
+        controls_layout.addWidget(self.open_source_button, 8, 1)
+        controls_layout.addWidget(self.open_staging_button, 8, 2)
         root_layout.addWidget(controls)
 
         table_wrap = QFrame()
@@ -488,9 +509,9 @@ class MainWindow(QMainWindow):
         table_layout.setContentsMargins(18, 18, 18, 18)
         table_layout.setSpacing(12)
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
-            ["File", "Thu muc", "Loai", "Kich thuoc", "Cap nhat", "Duong dan"]
+            ["File", "Thu muc", "Loai", "Kich thuoc", "Cap nhat", "Trang thai", "Duong dan"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -687,6 +708,11 @@ class MainWindow(QMainWindow):
         self.scan_subfolders.setDisabled(busy)
         self.search_edit.setDisabled(busy)
         self.sort_combo.setDisabled(busy)
+        self.select_all_button.setDisabled(busy)
+        self.clear_selection_button.setDisabled(busy)
+        self.mark_staging_button.setDisabled(busy)
+        self.unmark_staging_button.setDisabled(busy)
+        self.move_marked_button.setDisabled(busy)
 
     def choose_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Chon thu muc nguon Revit backup")
@@ -759,6 +785,31 @@ class MainWindow(QMainWindow):
         visible = self._filtered_and_sorted_items()
         return [visible[row] for row in self._selected_rows() if 0 <= row < len(visible)]
 
+    def select_all_rows(self) -> None:
+        self.table.selectAll()
+
+    def clear_all_rows(self) -> None:
+        self.table.clearSelection()
+
+    def mark_selected_for_staging(self) -> None:
+        items = self._selected_items()
+        if not items:
+            QMessageBox.information(self, "Chua chon", "Hay chon it nhat mot file de danh dau staging.")
+            return
+        self.staging_marked.update(item.path for item in items)
+        self._log(f"Da danh dau {len(items)} file se move sang staging.")
+        self._refresh_table_view()
+
+    def unmark_selected_for_staging(self) -> None:
+        items = self._selected_items()
+        if not items:
+            QMessageBox.information(self, "Chua chon", "Hay chon it nhat mot file de bo danh dau.")
+            return
+        for item in items:
+            self.staging_marked.discard(item.path)
+        self._log(f"Da bo danh dau staging cho {len(items)} file.")
+        self._refresh_table_view()
+
     def _refresh_table_view(self) -> None:
         items = self._filtered_and_sorted_items()
         self.table.setRowCount(len(items))
@@ -769,6 +820,7 @@ class MainWindow(QMainWindow):
                 item.backup_type,
                 human_size(item.size),
                 item.modified_display,
+                "Se move sang staging" if item.path in self.staging_marked else "",
                 str(item.path),
             ]
             for col, value in enumerate(values):
@@ -777,17 +829,21 @@ class MainWindow(QMainWindow):
                     table_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 if col in {3, 4}:
                     table_item.setForeground(QColor("#cfe3ff"))
+                if item.path in self.staging_marked:
+                    table_item.setBackground(QBrush(QColor("#4c1d95")))
+                    table_item.setForeground(QColor("#f5e9ff"))
                 self.table.setItem(row, col, table_item)
 
         self.table.resizeColumnsToContents()
         self.table.setColumnWidth(1, max(220, self.table.columnWidth(1)))
-        self.table.setColumnWidth(5, max(280, self.table.columnWidth(5)))
+        self.table.setColumnWidth(5, max(150, self.table.columnWidth(5)))
+        self.table.setColumnWidth(6, max(280, self.table.columnWidth(6)))
         total_size = sum(item.size for item in self.backup_items)
         self.card_total.set_value(f"{len(self.backup_items):,}")
         self.card_size.set_value(human_size(total_size))
         self.card_selected.set_value(f"{len(self._selected_rows()):,}")
         stage_dir = self.staging_root()
-        self.card_staged.set_value("Ready" if stage_dir else "Unset")
+        self.card_staged.set_value(f"{len(self.staging_marked):,}" if stage_dir else "Unset")
 
     def start_scan(self) -> None:
         root = self.source_root()
@@ -942,6 +998,10 @@ class MainWindow(QMainWindow):
     def move_selected_to_staging(self) -> None:
         self._perform_move_to_staging(self._selected_items())
 
+    def move_marked_to_staging(self) -> None:
+        marked = [item for item in self.backup_items if item.path in self.staging_marked]
+        self._perform_move_to_staging(marked)
+
     def move_all_to_staging(self) -> None:
         self._perform_move_to_staging(self._filtered_and_sorted_items())
 
@@ -950,6 +1010,7 @@ class MainWindow(QMainWindow):
         self._set_ui_busy(False)
         self.progress.setValue(100)
         self._log(f"Da chuyen {moved} file vao staging, loi {errors} file.")
+        self.staging_marked.clear()
         self.card_staged.set_value(f"{moved:,}")
         self.start_scan()
 
