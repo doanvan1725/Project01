@@ -2,6 +2,8 @@ import { supabase } from "./supabase";
 import type { Attachment, Issue, IssueStatus, IssueVersion } from "../types";
 import type { UserRole } from "../types";
 
+export type UserProfile = { id: string; fullName: string; role: UserRole };
+
 type IssueRow = {
   id: string;
   creator_name: string;
@@ -67,6 +69,19 @@ export async function getCurrentProfile(): Promise<{
     fullName: data.full_name,
     role: data.role as UserRole,
   };
+}
+
+export async function fetchProfiles(): Promise<UserProfile[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from("profiles").select("id, full_name, role").order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row) => ({ id: row.id, fullName: row.full_name, role: row.role as UserRole }));
+}
+
+export async function updateUserRole(id: string, role: UserRole): Promise<void> {
+  if (!supabase) throw new Error("Supabase chua duoc cau hinh");
+  const { error } = await supabase.from("profiles").update({ role }).eq("id", id);
+  if (error) throw error;
 }
 
 export async function signIn(email: string, password: string): Promise<void> {

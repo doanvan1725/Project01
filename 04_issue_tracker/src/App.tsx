@@ -49,6 +49,7 @@ import {
   createIssue,
   downloadAttachment,
   fetchIssueVersions,
+  fetchProfiles,
   fetchIssues,
   getCurrentProfile,
   removeIssue,
@@ -56,6 +57,7 @@ import {
   signOut,
   signUp,
   updateIssue,
+  updateUserRole,
   uploadAttachment,
 } from "./lib/issues";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
@@ -67,6 +69,7 @@ import type {
   IssueVersion,
   UserRole,
 } from "./types";
+import type { UserProfile } from "./lib/issues";
 import { STATUS_OPTIONS } from "./types";
 
 const categoryOptions = [
@@ -187,7 +190,7 @@ function App() {
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
   const [activeModal, setActiveModal] = useState<
-    "create" | "answer" | "view" | "edit" | "version" | null
+    "create" | "answer" | "view" | "edit" | "version" | "permissions" | null
   >(null);
   const [answerTarget, setAnswerTarget] = useState<Issue | null>(null);
   const [viewTarget, setViewTarget] = useState<Issue | null>(null);
@@ -195,6 +198,7 @@ function App() {
   const [versionTarget, setVersionTarget] = useState<Issue | null>(null);
   const [versions, setVersions] = useState<IssueVersion[]>([]);
   const [menuTarget, setMenuTarget] = useState<string | null>(null);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [busy, setBusy] = useState(false);
   const [role, setRole] = useState<UserRole>("admin");
   const [profile, setProfile] = useState<{
@@ -491,6 +495,21 @@ function App() {
     finally { setBusy(false); }
   }
 
+  async function openPermissions() {
+    if (!canDelete) return;
+    setBusy(true); setError("");
+    try { setUsers(await fetchProfiles()); setActiveModal("permissions"); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Khong the tai danh sach nguoi dung"); }
+    finally { setBusy(false); }
+  }
+
+  async function changeRole(id: string, nextRole: UserRole) {
+    setBusy(true); setError("");
+    try { await updateUserRole(id, nextRole); setUsers((current) => current.map((user) => user.id === id ? { ...user, role: nextRole } : user)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Khong the cap nhat quyen"); }
+    finally { setBusy(false); }
+  }
+
   if (isSupabaseConfigured && !authReady)
     return (
       <div className="auth-loading">
@@ -525,7 +544,7 @@ function App() {
             <FolderOpen size={18} /> Thư viện hồ sơ
           </button>
           <p className="nav-label nav-gap">HỆ THỐNG</p>
-          <button className="nav-item">
+          <button className="nav-item" disabled={!canDelete} onClick={() => void openPermissions()}>
             <ShieldCheck size={18} /> Phân quyền
           </button>
           <button className="nav-item">
@@ -958,6 +977,7 @@ function App() {
       {activeModal === "version" && versionTarget && (
         <VersionModal issue={versionTarget} versions={versions} busy={busy} onClose={() => { setActiveModal(null); setVersionTarget(null); }} onSubmit={handleVersion} onDownload={handleDownload} />
       )}
+      {activeModal === "permissions" && <PermissionsModal users={users} busy={busy} onClose={() => setActiveModal(null)} onChangeRole={changeRole} />}
       {activeModal === "view" && viewTarget && (
         <Modal
           title="Chi tiết nội dung Issue"
@@ -1112,6 +1132,10 @@ function AuthScreen() {
       </div>
     </div>
   );
+}
+
+function PermissionsModal({ users, busy, onClose, onChangeRole }: { users: UserProfile[]; busy: boolean; onClose: () => void; onChangeRole: (id: string, role: UserRole) => void }) {
+  return <Modal title="Phân quyền người dùng" onClose={onClose} wide><div className="permissions-list">{users.length === 0 ? <p className="muted">Chưa có người dùng nào.</p> : users.map((user) => <div className="permission-row" key={user.id}><div><strong>{user.fullName || "Chưa đặt tên"}</strong><small>{user.id}</small></div><select value={user.role} disabled={busy} onChange={(event) => void onChangeRole(user.id, event.target.value as UserRole)}><option value="admin">Admin</option><option value="editor">Editor</option><option value="viewer">Viewer</option></select></div>)}</div></Modal>;
 }
 
 function CreateModal({
