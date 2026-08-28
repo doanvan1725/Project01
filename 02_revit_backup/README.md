@@ -9,6 +9,7 @@ App Python giao dien desktop de:
 - chuyen file vao thu muc staging do ban chi dinh truoc khi xoa
 - danh dau file se move sang staging bang mau highlight rieng de kiem tra truoc
 - chon tat ca, bo chon tat ca va move rieng cac file da danh dau
+- tuy chon nhan dien backup AutoCAD co duoi `.bak`
 - keo-tha thu muc truc tiep vao o duong dan
 - ghi log ra file va mo nhanh thu muc nguon/staging
 
@@ -16,6 +17,7 @@ App Python giao dien desktop de:
 
 - `Scan backup`: quet file theo duong dan ban chon
 - `Quet ca thu muc con`: bat/tat quet recursive
+- `Nhan dien AutoCAD .bak`: bat/tat file backup AutoCAD dang `ten_ban_ve.bak`
 - `Xoa muc dang chon`: xoa cac file dang duoc chon tren bang
 - `Xoa toan bo ket qua`: xoa tat ca backup tim thay trong ket qua hien tai
 - giao dien dark, card thong ke, bang ket qua, nhat ky xu ly
@@ -44,6 +46,7 @@ Workflow tu dong nhung icon `revit_backup_inspector.ico` vao EXE Windows. EXE la
 App se gom:
 
 - file co duoi `.rvt.bak`, `.rfa.bak`, `.rte.bak`, `.rft.bak`
+- file AutoCAD co duoi `.bak` khi tuy chon AutoCAD duoc bat
 - file co duoi so backup kieu `model.0001.rvt`, `family.0003.rfa`
 - file trong thu muc staging se duoc bo qua khi scan nguon neu staging nam ben trong source
 

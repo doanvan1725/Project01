@@ -79,10 +79,12 @@ def is_under(path: Path, root: Path) -> bool:
     return path_resolved == root_resolved or path_resolved.is_relative_to(root_resolved)
 
 
-def is_revit_backup(path: Path) -> tuple[bool, str]:
+def is_revit_backup(path: Path, include_autocad_bak: bool = True) -> tuple[bool, str]:
     lower_name = path.name.lower()
     if lower_name.endswith(".bak") and any(lower_name.endswith(f"{ext}.bak") for ext in BACKUP_EXTENSIONS):
         return True, "Classic backup"
+    if include_autocad_bak and lower_name.endswith(".bak"):
+        return True, "AutoCAD backup (.bak)"
     if NUMBERED_BACKUP_RE.search(lower_name):
         return True, "Numbered backup"
     return False, ""
@@ -141,6 +143,7 @@ def scan_backups(
     exclude_dirs: list[Path] | None = None,
     progress_cb=None,
     status_cb=None,
+    include_autocad_bak: bool = True,
 ) -> list[BackupItem]:
     items: list[BackupItem] = []
     exclude_dirs = exclude_dirs or []
@@ -154,7 +157,7 @@ def scan_backups(
             status_cb(f"Scanning {processed} files...")
 
         try:
-            matched, backup_type = is_revit_backup(path)
+            matched, backup_type = is_revit_backup(path, include_autocad_bak)
             if not matched:
                 continue
             stat = path.stat()
@@ -225,10 +228,17 @@ class ScanWorker(QObject):
     progress = Signal(int)
     status = Signal(str)
 
-    def __init__(self, root: str, include_subfolders: bool, exclude_dirs: list[str]) -> None:
+    def __init__(
+        self,
+        root: str,
+        include_subfolders: bool,
+        include_autocad_bak: bool,
+        exclude_dirs: list[str],
+    ) -> None:
         super().__init__()
         self.root = Path(root)
         self.include_subfolders = include_subfolders
+        self.include_autocad_bak = include_autocad_bak
         self.exclude_dirs = [Path(p) for p in exclude_dirs if p]
 
     @Slot()
@@ -241,6 +251,7 @@ class ScanWorker(QObject):
                 self.exclude_dirs,
                 progress_cb=lambda value: self.progress.emit(min(value, 100)),
                 status_cb=self.status.emit,
+                include_autocad_bak=self.include_autocad_bak,
             )
             self.finished.emit(items, 0)
         except Exception as exc:  # pragma: no cover - surfaced in UI
@@ -430,6 +441,9 @@ class MainWindow(QMainWindow):
         self.scan_subfolders = QCheckBox("Quet ca thu muc con")
         self.scan_subfolders.setChecked(True)
 
+        self.scan_autocad_bak = QCheckBox("Nhan dien AutoCAD .bak")
+        self.scan_autocad_bak.setChecked(True)
+
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Loc theo ten file, thu muc hoac loai backup...")
         self.search_edit.textChanged.connect(self._refresh_table_view)
@@ -481,8 +495,9 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.folder_edit, 1, 0, 1, 3)
         controls_layout.addWidget(browse_btn, 1, 3)
         controls_layout.addWidget(self.scan_subfolders, 2, 0)
-        controls_layout.addWidget(QLabel("Tim nhanh"), 2, 1)
-        controls_layout.addWidget(self.search_edit, 2, 2, 1, 2)
+        controls_layout.addWidget(self.scan_autocad_bak, 2, 1)
+        controls_layout.addWidget(QLabel("Tim nhanh"), 2, 2)
+        controls_layout.addWidget(self.search_edit, 2, 3)
         controls_layout.addWidget(QLabel("Sap xep"), 3, 0)
         controls_layout.addWidget(self.sort_combo, 3, 1)
         controls_layout.addWidget(self.scan_button, 3, 2)
@@ -706,6 +721,7 @@ class MainWindow(QMainWindow):
         self.folder_edit.setDisabled(busy)
         self.staging_edit.setDisabled(busy)
         self.scan_subfolders.setDisabled(busy)
+        self.scan_autocad_bak.setDisabled(busy)
         self.search_edit.setDisabled(busy)
         self.sort_combo.setDisabled(busy)
         self.select_all_button.setDisabled(busy)
@@ -866,7 +882,12 @@ class MainWindow(QMainWindow):
             self._log(f"Bo qua staging trong khi quet: {staging}")
 
         self.scan_thread = QThread(self)
-        self.scan_worker = ScanWorker(str(root), self.scan_subfolders.isChecked(), excludes)
+        self.scan_worker = ScanWorker(
+            str(root),
+            self.scan_subfolders.isChecked(),
+            self.scan_autocad_bak.isChecked(),
+            excludes,
+        )
         self.scan_worker.moveToThread(self.scan_thread)
         self.scan_thread.started.connect(self.scan_worker.run)
         self.scan_worker.status.connect(self._log)
