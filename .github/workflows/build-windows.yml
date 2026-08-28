@@ -10,6 +10,10 @@ jobs:
   build:
     runs-on: windows-latest
 
+    defaults:
+      run:
+        working-directory: 02_revit_backup
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,4 +36,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: RevitBackupInspector-windows
-          path: dist/RevitBackupInspector.exe
+          path: 02_revit_backup/dist/RevitBackupInspector.exe

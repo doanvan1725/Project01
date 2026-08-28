@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 build/
 dist/
+02_revit_backup/build/
+02_revit_backup/dist/
+02_revit_backup/__pycache__/
 *.spec
 *.log
 .pytest_cache/
